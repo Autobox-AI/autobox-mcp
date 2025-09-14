@@ -21,12 +21,14 @@ An MCP (Model Context Protocol) server for managing Autobox AI simulations.
 export OPENAI_API_KEY=sk-your-key-here
 
 # One-liner installation
-git clone https://github.com/margostino/autobox-mcp.git && cd autobox-mcp && \
+git clone https://github.com/Autobox-AI/autobox-mcp.git && cd autobox-mcp && \
 docker build -t autobox-mcp . && \
-claude mcp add autobox -s user docker -- run -i --rm -e HOST_HOME=$HOME -e OPENAI_API_KEY=$OPENAI_API_KEY -v /var/run/docker.sock:/var/run/docker.sock -v ${HOME}/.autobox:/root/.autobox autobox-mcp
+claude mcp add autobox -s user docker -- run -i --rm -e HOST_HOME=$HOME -e HOST_USER=$USER -e OPENAI_API_KEY=$OPENAI_API_KEY -v /var/run/docker.sock:/var/run/docker.sock -v ${HOME}/.autobox:/root/.autobox autobox-mcp
 ```
 
 After installation, restart Claude Desktop and you're ready to go!
+
+**Verify Installation:** In Claude, ask "Can you list the available Autobox MCP tools?" - Claude should respond with 8 available tools.
 
 ## Prerequisites
 
@@ -80,22 +82,21 @@ After installation, restart Claude Desktop and you're ready to go!
 
 ### For Claude CLI
 
-1. **Install the package:**
+1. **Build the Docker image:**
    ```bash
    cd /path/to/autobox-mcp
-   uv sync
-   uv pip install -e .
+   docker build -t autobox-mcp .
    ```
 
 2. **Add to Claude CLI:**
    ```bash
-   # Add globally (recommended)
-   claude mcp add --scope user autobox "/path/to/autobox-mcp/run_mcp_server.sh" \
-     -e OPENAI_API_KEY=$OPENAI_API_KEY
-
-   # Or add to current project only
-   claude mcp add autobox "/path/to/autobox-mcp/run_mcp_server.sh" \
-     -e OPENAI_API_KEY=$OPENAI_API_KEY
+   claude mcp add autobox -s user docker -- run -i --rm \
+     -e HOST_HOME=$HOME \
+     -e HOST_USER=$USER \
+     -e OPENAI_API_KEY=$OPENAI_API_KEY \
+     -v /var/run/docker.sock:/var/run/docker.sock \
+     -v ${HOME}/.autobox:/root/.autobox \
+     autobox-mcp
    ```
 
 3. **Verify connection:**
@@ -114,6 +115,11 @@ After installation, restart Claude Desktop and you're ready to go!
 
    # Or directly ask about Autobox
    "List available Autobox simulation configs"
+   ```
+
+5. **To uninstall:**
+   ```bash
+   claude mcp remove autobox
    ```
 
 ### For Cursor IDE
@@ -196,32 +202,71 @@ Cursor doesn't natively support MCP servers, but you can use the Autobox CLI dir
 2. **"Cannot connect to Docker" error:**
    - Start Docker Desktop
    - Check Docker daemon: `docker version`
+   - On Linux, add user to docker group: `sudo usermod -aG docker $USER`
+
+3. **Permission errors:**
+   - Ensure Docker Desktop is running
+   - Check logs: `claude mcp logs autobox`
 
 ## Development
 
+### Building the Docker Image
+
 ```bash
-# Run tests
-uv run pytest
+# Build with default settings
+./bin/docker-build
 
-# Format code
-uv run ruff format
+# Build with custom tag
+./bin/docker-build --tag v1.0.0
 
-# Lint
-uv run ruff check
+# Build without cache
+./bin/docker-build --no-cache
 
+# Build for specific platform
+./bin/docker-build --platform linux/amd64
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+./bin/test
+
+# Run unit tests only
+./bin/test-unit
+
+# Run integration tests
+./bin/test-it
+
+# Run with coverage
+./bin/test-cov
+```
+
+### Docker Socket Access
+
+The MCP server requires access to the Docker socket to manage simulation containers:
+- `-v /var/run/docker.sock:/var/run/docker.sock` - Allows creating/managing Docker containers
+- `-v ${HOME}/.autobox:/root/.autobox` - Persists configuration and simulation data
+
+### Manual Testing
+
+```bash
 # Test MCP server manually
-echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}' | ./run_mcp_server.sh
+echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}' | uv run autobox-mcp
 ```
 
 ## Architecture
 
 ```
 autobox-mcp/
-├── src/autobox_mcp/
+├── autobox/
 │   ├── server.py          # Main MCP server
 │   ├── docker/            # Docker container management
-│   ├── models/            # Pydantic schemas
-│   └── tools/             # MCP tool implementations
+│   └── config/            # Configuration management
+├── tests/
+│   ├── unit/              # Unit tests
+│   └── integration/       # Integration tests
+└── bin/                   # Utility scripts
 ```
 
 ## License
