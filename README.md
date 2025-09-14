@@ -34,10 +34,13 @@ After installation, restart Claude Desktop and you're ready to go!
 
 1. **Docker**: Must be installed and running
 2. **OpenAI API Key**: Required for AI agent simulations
+
    ```bash
    export OPENAI_API_KEY=sk-your-key-here
    ```
+
 3. **Autobox Engine**: The engine Docker image must be built:
+
    ```bash
    cd /path/to/autobox-engine
    ./bin/docker-build
@@ -47,35 +50,38 @@ After installation, restart Claude Desktop and you're ready to go!
 
 ### For Claude Desktop App
 
-1. **Edit Claude Desktop configuration:**
+1. **Build the Docker image:**
+
    ```bash
-   # Open the config file
+   cd /path/to/autobox-mcp
+   docker build -t autobox-mcp .
+   ```
+
+2. **Edit Claude Desktop configuration:**
+
+   ```bash
    open ~/Library/Application\ Support/Claude/claude_desktop_config.json
    ```
 
-2. **Add the Autobox MCP server to the config:**
+3. **Add the Autobox MCP server to the config:**
+
    ```json
    {
      "mcpServers": {
        "autobox": {
-         "command": "/path/to/autobox-mcp/run_mcp_server.sh",
-         "args": [],
-         "env": {
-           "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-         }
+         "command": "docker",
+         "args": [
+           "run", "-i", "--rm",
+           "-e", "HOST_HOME=${HOME}",
+           "-e", "HOST_USER=${USER}",
+           "-e", "OPENAI_API_KEY=${OPENAI_API_KEY}",
+           "-v", "/var/run/docker.sock:/var/run/docker.sock",
+           "-v", "${HOME}/.autobox:/root/.autobox",
+           "autobox-mcp"
+         ]
        }
      }
    }
-   ```
-
-3. **Create the wrapper script** (if not exists):
-   ```bash
-   cat > run_mcp_server.sh << 'EOF'
-   #!/bin/bash
-   cd /path/to/autobox-mcp
-   exec uv run autobox-mcp
-   EOF
-   chmod +x run_mcp_server.sh
    ```
 
 4. **Restart Claude Desktop** (Cmd+Q and reopen)
@@ -83,12 +89,14 @@ After installation, restart Claude Desktop and you're ready to go!
 ### For Claude CLI
 
 1. **Build the Docker image:**
+
    ```bash
    cd /path/to/autobox-mcp
    docker build -t autobox-mcp .
    ```
 
 2. **Add to Claude CLI:**
+
    ```bash
    claude mcp add autobox -s user docker -- run -i --rm \
      -e HOST_HOME=$HOME \
@@ -100,12 +108,14 @@ After installation, restart Claude Desktop and you're ready to go!
    ```
 
 3. **Verify connection:**
+
    ```bash
    claude mcp list
    # Should show: autobox ... ✓ Connected
    ```
 
 4. **Use in Claude CLI:**
+
    ```bash
    # Start a new chat
    claude
@@ -118,6 +128,7 @@ After installation, restart Claude Desktop and you're ready to go!
    ```
 
 5. **To uninstall:**
+
    ```bash
    claude mcp remove autobox
    ```
@@ -127,12 +138,14 @@ After installation, restart Claude Desktop and you're ready to go!
 Cursor doesn't natively support MCP servers, but you can use the Autobox CLI directly:
 
 1. **Install Autobox CLI** (if available):
+
    ```bash
    # Refer to autobox-cli repository
    go install github.com/Autobox-AI/autobox-cli@latest
    ```
 
 2. **Use via terminal in Cursor:**
+
    ```bash
    # List simulations
    autobox list
@@ -151,6 +164,7 @@ Cursor doesn't natively support MCP servers, but you can use the Autobox CLI dir
 ## Available Tools
 
 ### Simulation Management
+
 - `list_simulations` - List all simulations (running and completed)
 - `start_simulation` - Start a new simulation from config
 - `stop_simulation` - Stop a running simulation
@@ -159,6 +173,7 @@ Cursor doesn't natively support MCP servers, but you can use the Autobox CLI dir
 - `get_simulation_metrics` - Get real-time metrics (progress, agent stats, Docker stats)
 
 ### Configuration
+
 - `list_available_configs` - List available simulation templates
 - `create_simulation_config` - Create new simulation config with AI assistance
 
@@ -177,10 +192,10 @@ Cursor doesn't natively support MCP servers, but you can use the Autobox CLI dir
 ### MCP Server Not Connecting
 
 1. **"Failed to connect" error:**
-   - Ensure the wrapper script has correct paths
    - Check OPENAI_API_KEY is set: `echo $OPENAI_API_KEY`
    - Verify Docker is running: `docker ps`
-   - Test manually: `./run_mcp_server.sh < /dev/null`
+   - Test Docker image exists: `docker images | grep autobox-mcp`
+   - Test manually: `docker run -it --rm autobox-mcp`
 
 2. **"Server not found" in Claude:**
    - Restart Claude after config changes
@@ -194,6 +209,7 @@ Cursor doesn't natively support MCP servers, but you can use the Autobox CLI dir
 ### Docker Issues
 
 1. **"Image not found" error:**
+
    ```bash
    cd /path/to/autobox-engine
    ./bin/docker-build
@@ -245,14 +261,44 @@ Cursor doesn't natively support MCP servers, but you can use the Autobox CLI dir
 ### Docker Socket Access
 
 The MCP server requires access to the Docker socket to manage simulation containers:
+
 - `-v /var/run/docker.sock:/var/run/docker.sock` - Allows creating/managing Docker containers
 - `-v ${HOME}/.autobox:/root/.autobox` - Persists configuration and simulation data
 
 ### Manual Testing
 
+To test the MCP server manually with proper protocol flow:
+
 ```bash
-# Test MCP server manually
-echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}' | uv run autobox-mcp
+# Start the container interactively
+docker run -it --rm \
+  -e HOST_HOME=$HOME \
+  -e HOST_USER=$USER \
+  -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v ${HOME}/.autobox:/root/.autobox \
+  autobox-mcp
+
+# Then send these commands in sequence (paste one at a time):
+
+# 1. Initialize
+{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}
+
+# 2. Send initialized notification
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+
+# 3. List available tools
+{"jsonrpc":"2.0","method":"tools/list","params":{},"id":2}
+
+# 4. Try a tool (list configs)
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"list_available_configs"},"id":3}
+
+# Press Ctrl+C to exit
+```
+
+Or use the automated test script:
+```bash
+python test_mcp_proper.py
 ```
 
 ## Architecture
@@ -271,4 +317,4 @@ autobox-mcp/
 
 ## License
 
-MIT
+Apache License 2.0
