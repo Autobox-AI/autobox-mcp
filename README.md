@@ -297,6 +297,7 @@ docker run -it --rm \
 ```
 
 Or use the automated test script:
+
 ```bash
 python test_mcp_proper.py
 ```
@@ -318,3 +319,13 @@ autobox-mcp/
 ## License
 
 Apache License 2.0
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/Autobox-AI/autobox-mcp/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Autobox-AI/autobox-mcp/discussions)
+- **Documentation**: [Wiki](https://github.com/Autobox-AI/autobox-mcp/wiki)
+
+---
+
+Built with ❤️ by the Autobox team
