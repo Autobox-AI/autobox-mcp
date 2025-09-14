@@ -1,7 +1,7 @@
 # Autobox MCP Server
 
-[![Tests](https://github.com/margostino/autobox-mcp/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/margostino/autobox-mcp/actions/workflows/tests.yml)
-[![codecov](https://codecov.io/gh/margostino/autobox-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/margostino/autobox-mcp)
+[![Tests](https://github.com/Autobox-AI/autobox-mcp/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/Autobox-AI/autobox-mcp/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/Autobox-AI/autobox-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/Autobox-AI/autobox-mcp)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 An MCP (Model Context Protocol) server for managing Autobox AI simulations.
