@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+# Run all tests
+set -e
+
+echo "🧪 Running all tests..."
+echo ""
+
+uv run pytest tests/ -v --tb=short
+
+echo ""
+echo "✅ All tests completed"

@@ -1,0 +1,1 @@
+"""Test suite for Autobox MCP Server."""

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+# Run integration tests
+set -e
+
+echo "🧪 Running integration tests..."
+echo ""
+
+# Check if Docker is available
+if ! command -v docker &> /dev/null; then
+    echo "⚠️  Docker not found. Some integration tests may be skipped."
+    echo ""
+fi
+
+# Check if autobox-mcp image exists
+if ! docker images -q autobox-mcp:latest &> /dev/null; then
+    echo "⚠️  Docker image 'autobox-mcp:latest' not found."
+    echo "   Build it with: ./bin/docker-build"
+    echo ""
+fi
+
+uv run pytest tests/integration/ -v --tb=short
+
+echo ""
+echo "✅ Integration tests completed"

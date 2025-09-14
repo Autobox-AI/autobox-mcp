@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+# Run tests with coverage report
+set -e
+
+echo "🧪 Running tests with coverage..."
+echo ""
+
+# Run tests with coverage
+uv run pytest tests/ \
+    --cov=autobox \
+    --cov-report=term-missing \
+    --cov-report=html \
+    --cov-report=term:skip-covered \
+    -v
+
+echo ""
+echo "📊 Coverage report generated:"
+echo "   • Terminal output above"
+echo "   • HTML report: htmlcov/index.html"
+echo ""
+echo "To view HTML report: open htmlcov/index.html"
+echo ""
+echo "✅ Coverage tests completed"

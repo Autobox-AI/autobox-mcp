@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+IMAGE_NAME="${IMAGE_NAME:-autobox-mcp}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+FULL_IMAGE_NAME="${IMAGE_NAME}:${IMAGE_TAG}"
+
+BUILD_ARGS=""
+NO_CACHE=false
+PUSH=false
+PLATFORM=""
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Build the Autobox MCP server Docker image.
+
+OPTIONS:
+    -h, --help              Show this help message
+    -n, --name NAME         Docker image name (default: autobox-mcp)
+    -t, --tag TAG           Docker image tag (default: latest)
+    --no-cache              Build without using cache
+    --push                  Push image to registry after building
+    --platform PLATFORM     Set target platform (e.g., linux/amd64, linux/arm64)
+    -v, --verbose           Enable verbose output
+
+EXAMPLES:
+    # Build with default settings
+    ./bin/docker-build
+
+    # Build with custom name and tag
+    ./bin/docker-build --name my-mcp --tag v1.0.0
+
+    # Build for specific platform
+    ./bin/docker-build --platform linux/amd64
+
+    # Build and push to registry
+    ./bin/docker-build --push
+
+EOF
+}
+
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
+}
+
+error() {
+    echo "[ERROR] $*" >&2
+    exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -n|--name)
+            IMAGE_NAME="$2"
+            shift 2
+            ;;
+        -t|--tag)
+            IMAGE_TAG="$2"
+            shift 2
+            ;;
+        --no-cache)
+            NO_CACHE=true
+            shift
+            ;;
+        --push)
+            PUSH=true
+            shift
+            ;;
+        --platform)
+            PLATFORM="$2"
+            shift 2
+            ;;
+        -v|--verbose)
+            set -x
+            shift
+            ;;
+        *)
+            error "Unknown option: $1"
+            ;;
+    esac
+done
+
+cd "${PROJECT_ROOT}"
+
+log "Building Docker image: ${FULL_IMAGE_NAME}"
+log "Project root: ${PROJECT_ROOT}"
+
+if [ ! -f "Dockerfile" ]; then
+    error "Dockerfile not found in ${PROJECT_ROOT}"
+fi
+
+if [ ! -d "autobox" ]; then
+    error "autobox directory not found in ${PROJECT_ROOT}"
+fi
+
+if [ "$NO_CACHE" = true ]; then
+    BUILD_ARGS="${BUILD_ARGS} --no-cache"
+    log "Building without cache"
+fi
+
+if [ -n "$PLATFORM" ]; then
+    BUILD_ARGS="${BUILD_ARGS} --platform ${PLATFORM}"
+    log "Building for platform: ${PLATFORM}"
+fi
+
+log "Starting Docker build..."
+docker build ${BUILD_ARGS} -t "${FULL_IMAGE_NAME}" .
+
+if [ $? -eq 0 ]; then
+    log "✅ Docker image built successfully: ${FULL_IMAGE_NAME}"
+
+    log "Image details:"
+    docker images "${IMAGE_NAME}" --filter "reference=${FULL_IMAGE_NAME}"
+
+    if [ "$PUSH" = true ]; then
+        log "Pushing image to registry..."
+        docker push "${FULL_IMAGE_NAME}"
+        if [ $? -eq 0 ]; then
+            log "✅ Image pushed successfully"
+        else
+            error "Failed to push image"
+        fi
+    fi
+else
+    error "Docker build failed"
+fi
+
+log "Build complete!"

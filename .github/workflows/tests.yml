@@ -1,0 +1,63 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        uv sync --all-extras --dev
+        uv pip install -e .
+
+    - name: Run tests with coverage
+      run: |
+        uv run pytest tests/ --cov=autobox --cov-report=xml --cov-report=html --cov-report=term
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}  # Optional for public repos, but improves reliability
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+        verbose: true
+
+  docker-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build Docker image
+      run: docker build -t autobox-mcp:latest .
+
+    - name: Test Docker image
+      run: |
+        docker run --rm autobox-mcp:latest uv run python -c "print('Container works')"
+
+    - name: Test MCP initialization
+      run: |
+        echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}},"id":1}' | \
+        docker run -i --rm autobox-mcp:latest

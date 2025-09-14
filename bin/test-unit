@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+# Run unit tests only
+set -e
+
+echo "🧪 Running unit tests..."
+echo ""
+
+uv run pytest tests/unit/ -v --tb=short
+
+echo ""
+echo "✅ Unit tests completed"

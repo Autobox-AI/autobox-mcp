@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  autobox-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autobox-mcp:latest
+    container_name: autobox-mcp
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      # Mount Docker socket to manage other containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount autobox config directory
+      - ~/.autobox/config:/root/.autobox/config:ro
+      # Mount for temporary files
+      - /tmp:/tmp
+    stdin_open: true
+    tty: false
+    network_mode: bridge

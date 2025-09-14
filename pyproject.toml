@@ -1,0 +1,31 @@
+[project]
+name = "autobox-mcp"
+version = "0.1.0"
+description = "MCP server for managing Autobox AI simulations"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mcp>=1.1.0",
+    "pydantic>=2.0.0",
+    "docker>=7.0.0",
+    "aiofiles>=24.0.0",
+    "httpx>=0.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+autobox-mcp = "autobox.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["autobox"]
