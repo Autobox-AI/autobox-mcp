@@ -193,3 +193,47 @@ All MCP handlers use async/await for non-blocking operations, especially critica
 - TOML configs validated before container launch
 - AI-generated configs checked for required fields
 - Safe path handling for mounted volumes
+
+## Code Style Guidelines
+
+### Comments and Documentation
+- **AVOID redundant and meaningless comments** that simply restate what the code does
+- DO NOT add comments like `# Initialize variable` or `# Call function` 
+- DO NOT add docstrings that just repeat the function/class name
+- Comments should explain WHY, not WHAT the code does
+- Only add comments when the code's intent is not obvious
+- Good comments explain business logic, edge cases, or complex algorithms
+- Remove all trivial docstrings like `"""Test class for X"""` or `"""Initialize the class"""`
+
+Examples of comments to AVOID:
+```python
+# BAD - Redundant comments
+def get_user_name():
+    """Get the user name."""  # REMOVE - obvious from function name
+    name = input()  # Get input from user - REMOVE
+    return name  # Return the name - REMOVE
+
+# BAD - Meaningless docstrings  
+class UserManager:
+    """User manager class."""  # REMOVE - adds no value
+    
+    def __init__(self):
+        """Initialize the user manager."""  # REMOVE - obvious
+```
+
+Examples of GOOD comments:
+```python
+# GOOD - Explains non-obvious behavior
+def calculate_discount(price, user):
+    # Premium users get an extra 10% off during their first month
+    if user.is_premium and user.days_since_signup < 30:
+        return price * 0.9
+        
+# GOOD - Explains complex business logic
+def process_payment(amount):
+    # We retry 3 times with exponential backoff to handle 
+    # transient network issues with the payment gateway
+    for attempt in range(3):
+        delay = 2 ** attempt
+        ...
+```
