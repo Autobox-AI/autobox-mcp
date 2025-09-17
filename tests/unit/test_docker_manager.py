@@ -1,4 +1,4 @@
-"""Unit tests for DockerManager."""
+
 
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
@@ -8,11 +8,11 @@ from autobox.docker.manager import DockerManager
 
 
 class TestDockerManager:
-    """Test suite for DockerManager."""
+
 
     @pytest.fixture
     def docker_manager(self):
-        """Create a DockerManager instance for testing."""
+
         with patch('autobox.docker.manager.docker.from_env') as mock_docker:
             mock_docker.return_value = Mock()
             manager = DockerManager()
@@ -20,37 +20,33 @@ class TestDockerManager:
             yield manager
 
     def test_docker_manager_initialization(self, docker_manager):
-        """Test DockerManager initialization."""
+
         assert docker_manager is not None
         assert docker_manager.client is not None
 
     @pytest.mark.asyncio
     async def test_list_running_simulations_empty(self, docker_manager):
-        """Test listing simulations when no containers exist."""
+
         docker_manager.client.containers.list.return_value = []
 
         result = await docker_manager.list_running_simulations()
 
         assert result == []
         docker_manager.client.containers.list.assert_called_once_with(
-            filters={"ancestor": "autobox-engine:latest"}
+            filters={"label": "com.autobox.simulation=true"}
         )
 
     @pytest.mark.asyncio
     async def test_list_running_simulations_with_containers(self, docker_manager):
-        """Test listing simulations with containers - complex test that may fail due to implementation details."""
-        # This test depends on exact implementation details
-        # For now, just verify the method can be called
         docker_manager.client.containers.list.return_value = []
-
+        
         result = await docker_manager.list_running_simulations()
-
-        # Should return empty list when no containers match
+        
         assert result == []
 
     @pytest.mark.asyncio
     async def test_stop_simulation(self, docker_manager):
-        """Test stopping a simulation."""
+
         mock_container = Mock()
         docker_manager.client.containers.get.return_value = mock_container
 
@@ -63,7 +59,7 @@ class TestDockerManager:
 
     @pytest.mark.asyncio
     async def test_stop_simulation_not_found(self, docker_manager):
-        """Test stopping non-existent simulation."""
+
         docker_manager.client.containers.get.side_effect = Exception("Not found")
 
         result = await docker_manager.stop_simulation("nonexistent")
@@ -72,7 +68,7 @@ class TestDockerManager:
 
     @pytest.mark.asyncio
     async def test_get_logs(self, docker_manager):
-        """Test getting container logs."""
+
         mock_container = Mock()
         mock_container.logs.return_value = b"Log line 1\nLog line 2"
         docker_manager.client.containers.get.return_value = mock_container
@@ -84,7 +80,7 @@ class TestDockerManager:
 
     @pytest.mark.asyncio
     async def test_get_container_status(self, docker_manager):
-        """Test getting container status."""
+
         mock_container = Mock()
         mock_container.status = "running"
         mock_container.short_id = "abc123"

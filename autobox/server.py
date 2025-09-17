@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main MCP server for Autobox simulation management."""
+
 
 import asyncio
 import json
@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
 from autobox.docker.manager import DockerManager
 from autobox.models.schemas import SimulationConfig, SimulationStatus
@@ -17,14 +17,14 @@ from autobox.models.schemas import SimulationConfig, SimulationStatus
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class AutoboxMCPServer:
-    """MCP Server for managing Autobox simulations."""
+
 
     def __init__(self):
         self.server = Server("autobox-mcp")
         self.docker_manager = DockerManager()
         self.simulations: Dict[str, SimulationStatus] = {}
-        # Use proper ~/.autobox config directory
         self.autobox_config_path = Path.home() / ".autobox" / "config"
         self.simulations_path = self.autobox_config_path / "simulations"
         self.metrics_path = self.autobox_config_path / "metrics"
@@ -32,11 +32,11 @@ class AutoboxMCPServer:
         self._setup_handlers()
 
     def _setup_handlers(self):
-        """Set up MCP tool handlers."""
+
 
         @self.server.list_tools()
         async def list_tools() -> List[Tool]:
-            """List available tools."""
+
             return [
                 Tool(
                     name="list_simulations",
@@ -178,11 +178,19 @@ class AutoboxMCPServer:
                         "required": ["name", "description"],
                     },
                 ),
+                Tool(
+                    name="stop_all_simulations",
+                    description="Stop ALL running simulations (terminate all autobox Docker containers)",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                    },
+                ),
             ]
 
         @self.server.call_tool()
         async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-            """Handle tool calls."""
+
             try:
                 if name == "list_simulations":
                     result = await self._list_simulations()
@@ -194,7 +202,9 @@ class AutoboxMCPServer:
                 elif name == "stop_simulation":
                     result = await self._stop_simulation(arguments["simulation_id"])
                 elif name == "get_simulation_status":
-                    result = await self._get_simulation_status(arguments["simulation_id"])
+                    result = await self._get_simulation_status(
+                        arguments["simulation_id"]
+                    )
                 elif name == "get_simulation_logs":
                     result = await self._get_simulation_logs(
                         arguments["simulation_id"],
@@ -209,6 +219,8 @@ class AutoboxMCPServer:
                     )
                 elif name == "create_simulation_config":
                     result = await self._create_simulation_config(arguments)
+                elif name == "stop_all_simulations":
+                    result = await self._stop_all_simulations()
                 else:
                     result = f"Unknown tool: {name}"
 
@@ -218,7 +230,7 @@ class AutoboxMCPServer:
                 return [TextContent(type="text", text=f"Error: {str(e)}")]
 
     async def _list_simulations(self) -> Dict[str, Any]:
-        """List all simulations."""
+
         running = await self.docker_manager.list_running_simulations()
         return {
             "running": running,
@@ -229,7 +241,7 @@ class AutoboxMCPServer:
     async def _start_simulation(
         self, config_name: Optional[str], custom_config: Optional[Dict]
     ) -> Dict[str, Any]:
-        """Start a new simulation."""
+
         if custom_config:
             config_path = await self._save_custom_config(custom_config)
             metrics_path = self._get_default_metrics_path()
@@ -245,12 +257,14 @@ class AutoboxMCPServer:
         container_id = await self.docker_manager.start_simulation(
             str(config_path),
             str(metrics_path),
-            str(self.server_config_path) if self.server_config_path.exists() else None
+            str(self.server_config_path) if self.server_config_path.exists() else None,
         )
 
         self.simulations[container_id] = SimulationStatus(
             id=container_id,
-            name=custom_config.get("name", config_name) if custom_config else config_name,
+            name=custom_config.get("name", config_name)
+            if custom_config
+            else config_name,
             status="running",
             config_path=str(config_path),
         )
@@ -262,7 +276,7 @@ class AutoboxMCPServer:
         }
 
     async def _stop_simulation(self, simulation_id: str) -> Dict[str, Any]:
-        """Stop a running simulation."""
+
         success = await self.docker_manager.stop_simulation(simulation_id)
         if success:
             if simulation_id in self.simulations:
@@ -270,8 +284,20 @@ class AutoboxMCPServer:
             return {"simulation_id": simulation_id, "status": "stopped"}
         return {"error": f"Failed to stop simulation {simulation_id}"}
 
+    async def _stop_all_simulations(self) -> Dict[str, Any]:
+
+        result = await self.docker_manager.stop_all_simulations()
+        
+
+        stopped_ids = [s["id"] for s in result.get("stopped", [])]
+        for sim_id in stopped_ids:
+            if sim_id in self.simulations:
+                self.simulations[sim_id].status = "stopped"
+        
+        return result
+
     async def _get_simulation_status(self, simulation_id: str) -> Dict[str, Any]:
-        """Get simulation status."""
+
         container_status = await self.docker_manager.get_container_status(simulation_id)
 
         if simulation_id in self.simulations:
@@ -292,43 +318,68 @@ class AutoboxMCPServer:
             return {"error": f"Simulation {simulation_id} not found"}
 
     async def _get_simulation_logs(self, simulation_id: str, tail: int) -> str:
-        """Get simulation logs."""
+
         logs = await self.docker_manager.get_logs(simulation_id, tail)
         return logs if logs else f"No logs found for simulation {simulation_id}"
 
     async def _get_simulation_metrics(
         self, simulation_id: str, include_docker_stats: bool
     ) -> Dict[str, Any]:
-        """Get metrics from a running simulation."""
+
         metrics = {}
 
-        # Try to get metrics from the simulation API
-        api_status = await self.docker_manager.get_simulation_api_status(simulation_id)
-        if api_status:
-            metrics["api_status"] = api_status
-            metrics["progress"] = api_status.get("progress", 0)
-            metrics["status"] = api_status.get("status", "unknown")
-            metrics["current_step"] = api_status.get("current_step", 0)
-            metrics["max_steps"] = api_status.get("max_steps", 0)
-            metrics["agent_count"] = len(api_status.get("agents", {}))
+        api_metrics = await self.docker_manager.get_simulation_api_metrics(
+            simulation_id
+        )
+        if api_metrics:
+            metrics.update(api_metrics)
 
-            # Extract agent-specific metrics if available
-            if "agents" in api_status:
+            metrics["simulation_id"] = simulation_id
+            metrics["api_metrics"] = api_metrics
+
+            if "progress" in api_metrics:
+                metrics["progress"] = api_metrics["progress"]
+            if "status" in api_metrics:
+                metrics["status"] = api_metrics["status"]
+            if "current_step" in api_metrics:
+                metrics["current_step"] = api_metrics["current_step"]
+            if "max_steps" in api_metrics:
+                metrics["max_steps"] = api_metrics["max_steps"]
+            if "agents" in api_metrics:
+                metrics["agent_count"] = len(api_metrics["agents"])
                 metrics["agents"] = {}
-                for agent_name, agent_data in api_status["agents"].items():
+                for agent_name, agent_data in api_metrics["agents"].items():
                     metrics["agents"][agent_name] = {
                         "status": agent_data.get("status", "unknown"),
                         "messages_sent": agent_data.get("messages_sent", 0),
                         "messages_received": agent_data.get("messages_received", 0),
                     }
+        else:
+            api_status = await self.docker_manager.get_simulation_api_status(
+                simulation_id
+            )
+            if api_status:
+                metrics["api_status"] = api_status
+                metrics["progress"] = api_status.get("progress", 0)
+                metrics["status"] = api_status.get("status", "unknown")
+                metrics["current_step"] = api_status.get("current_step", 0)
+                metrics["max_steps"] = api_status.get("max_steps", 0)
+                metrics["agent_count"] = len(api_status.get("agents", {}))
 
-        # Get Docker container stats if requested
+                if "agents" in api_status:
+                    metrics["agents"] = {}
+                    for agent_name, agent_data in api_status["agents"].items():
+                        metrics["agents"][agent_name] = {
+                            "status": agent_data.get("status", "unknown"),
+                            "messages_sent": agent_data.get("messages_sent", 0),
+                            "messages_received": agent_data.get("messages_received", 0),
+                        }
+
         if include_docker_stats:
             docker_stats = await self.docker_manager.get_container_stats(simulation_id)
             if docker_stats:
                 metrics["docker_stats"] = docker_stats
 
-        # If we have no metrics at all, return an error
         if not metrics:
             return {"error": f"No metrics available for simulation {simulation_id}"}
 
@@ -337,14 +388,14 @@ class AutoboxMCPServer:
         return metrics
 
     async def _list_available_configs(self) -> List[str]:
-        """List available configuration templates."""
+
         if self.simulations_path.exists():
             configs = [f.stem for f in self.simulations_path.glob("*.json")]
             return configs
         return []
 
     async def _create_simulation_config(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new simulation configuration."""
+
         config = SimulationConfig(
             name=params["name"],
             description=params["description"],
@@ -379,12 +430,14 @@ class AutoboxMCPServer:
         }
 
         for agent in config.agents:
-            config_dict["workers"].append({
-                "name": agent["name"],
-                "role": agent["role"],
-                "backstory": agent.get("backstory", ""),
-                "llm": {"model": "gpt-4o-mini"},
-            })
+            config_dict["workers"].append(
+                {
+                    "name": agent["name"],
+                    "role": agent["role"],
+                    "backstory": agent.get("backstory", ""),
+                    "llm": {"model": "gpt-4o-mini"},
+                }
+            )
 
         return {
             "config": config_dict,
@@ -392,7 +445,7 @@ class AutoboxMCPServer:
         }
 
     async def _save_custom_config(self, config: Dict) -> Path:
-        """Save custom config to a temporary file."""
+
         import tempfile
 
         with tempfile.NamedTemporaryFile(
@@ -402,23 +455,22 @@ class AutoboxMCPServer:
             return Path(f.name)
 
     def _get_default_metrics_path(self) -> Path:
-        """Get default metrics path."""
-        # Try default metrics first
+
         default_metrics = self.metrics_path / "default.json"
         if default_metrics.exists():
             return default_metrics
 
-        # Try to find any metrics file
+
         if self.metrics_path.exists():
             metrics_files = list(self.metrics_path.glob("*.json"))
             if metrics_files:
                 return metrics_files[0]
 
-        # Return a temporary empty metrics file if none exist
+
         return Path("/tmp/empty_metrics.json")
 
     async def run(self):
-        """Run the MCP server."""
+
         from mcp.server import InitializationOptions
         from mcp.types import ServerCapabilities
 
@@ -429,15 +481,13 @@ class AutoboxMCPServer:
                 initialization_options=InitializationOptions(
                     server_name="autobox-mcp",
                     server_version="0.1.0",
-                    capabilities=ServerCapabilities(
-                        tools={}
-                    )
-                )
+                    capabilities=ServerCapabilities(tools={}),
+                ),
             )
 
 
 def main():
-    """Main entry point."""
+
     server = AutoboxMCPServer()
     asyncio.run(server.run())
 
