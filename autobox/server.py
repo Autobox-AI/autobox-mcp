@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -19,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 
 class AutoboxMCPServer:
-
-
     def __init__(self):
         self.server = Server("autobox-mcp")
         self.docker_manager = DockerManager()
@@ -32,11 +31,8 @@ class AutoboxMCPServer:
         self._setup_handlers()
 
     def _setup_handlers(self):
-
-
         @self.server.list_tools()
         async def list_tools() -> List[Tool]:
-
             return [
                 Tool(
                     name="list_simulations",
@@ -186,11 +182,48 @@ class AutoboxMCPServer:
                         "properties": {},
                     },
                 ),
+                Tool(
+                    name="create_simulation_metrics",
+                    description="Create metrics configuration for a simulation using AI assistance or custom metrics",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "simulation_name": {
+                                "type": "string",
+                                "description": "Name of the simulation (must match an existing config)",
+                            },
+                            "use_llm": {
+                                "type": "boolean",
+                                "description": "Whether to use LLM to generate metrics (default: true)",
+                            },
+                            "custom_metrics": {
+                                "type": "array",
+                                "description": "Custom metrics (if use_llm is false)",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "description": {"type": "string"},
+                                        "type": {
+                                            "type": "string",
+                                            "enum": ["COUNTER", "GAUGE", "HISTOGRAM"],
+                                        },
+                                        "unit": {"type": "string"},
+                                        "tags": {
+                                            "type": "array",
+                                            "items": {"type": "object"},
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        "required": ["simulation_name"],
+                    },
+                ),
             ]
 
         @self.server.call_tool()
         async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-
             try:
                 if name == "list_simulations":
                     result = await self._list_simulations()
@@ -221,6 +254,8 @@ class AutoboxMCPServer:
                     result = await self._create_simulation_config(arguments)
                 elif name == "stop_all_simulations":
                     result = await self._stop_all_simulations()
+                elif name == "create_simulation_metrics":
+                    result = await self._create_simulation_metrics(arguments)
                 else:
                     result = f"Unknown tool: {name}"
 
@@ -230,7 +265,6 @@ class AutoboxMCPServer:
                 return [TextContent(type="text", text=f"Error: {str(e)}")]
 
     async def _list_simulations(self) -> Dict[str, Any]:
-
         running = await self.docker_manager.list_running_simulations()
         return {
             "running": running,
@@ -241,7 +275,6 @@ class AutoboxMCPServer:
     async def _start_simulation(
         self, config_name: Optional[str], custom_config: Optional[Dict]
     ) -> Dict[str, Any]:
-
         if custom_config:
             config_path = await self._save_custom_config(custom_config)
             metrics_path = self._get_default_metrics_path()
@@ -276,7 +309,6 @@ class AutoboxMCPServer:
         }
 
     async def _stop_simulation(self, simulation_id: str) -> Dict[str, Any]:
-
         success = await self.docker_manager.stop_simulation(simulation_id)
         if success:
             if simulation_id in self.simulations:
@@ -285,19 +317,16 @@ class AutoboxMCPServer:
         return {"error": f"Failed to stop simulation {simulation_id}"}
 
     async def _stop_all_simulations(self) -> Dict[str, Any]:
-
         result = await self.docker_manager.stop_all_simulations()
-        
 
         stopped_ids = [s["id"] for s in result.get("stopped", [])]
         for sim_id in stopped_ids:
             if sim_id in self.simulations:
                 self.simulations[sim_id].status = "stopped"
-        
+
         return result
 
     async def _get_simulation_status(self, simulation_id: str) -> Dict[str, Any]:
-
         container_status = await self.docker_manager.get_container_status(simulation_id)
 
         if simulation_id in self.simulations:
@@ -318,14 +347,12 @@ class AutoboxMCPServer:
             return {"error": f"Simulation {simulation_id} not found"}
 
     async def _get_simulation_logs(self, simulation_id: str, tail: int) -> str:
-
         logs = await self.docker_manager.get_logs(simulation_id, tail)
         return logs if logs else f"No logs found for simulation {simulation_id}"
 
     async def _get_simulation_metrics(
         self, simulation_id: str, include_docker_stats: bool
     ) -> Dict[str, Any]:
-
         metrics = {}
 
         api_metrics = await self.docker_manager.get_simulation_api_metrics(
@@ -388,14 +415,12 @@ class AutoboxMCPServer:
         return metrics
 
     async def _list_available_configs(self) -> List[str]:
-
         if self.simulations_path.exists():
             configs = [f.stem for f in self.simulations_path.glob("*.json")]
             return configs
         return []
 
     async def _create_simulation_config(self, params: Dict[str, Any]) -> Dict[str, Any]:
-
         config = SimulationConfig(
             name=params["name"],
             description=params["description"],
@@ -409,68 +434,254 @@ class AutoboxMCPServer:
             "description": config.description,
             "max_steps": config.max_steps,
             "timeout_seconds": config.timeout_seconds,
+            "shutdown_grace_period_seconds": 5,
             "task": config.description,
             "evaluator": {
                 "name": "EVALUATOR",
-                "llm": {"model": "gpt-4o-mini"},
+                "mailbox": {"max_size": 400},
+                "llm": {"model": "gpt-5-nano"},
             },
             "reporter": {
                 "name": "REPORTER",
-                "llm": {"model": "gpt-4o-mini"},
+                "mailbox": {"max_size": 400},
+                "llm": {"model": "gpt-5-nano"},
             },
             "planner": {
                 "name": "PLANNER",
-                "llm": {"model": "gpt-4o-mini"},
+                "mailbox": {"max_size": 400},
+                "llm": {"model": "gpt-5-nano"},
             },
             "orchestrator": {
                 "name": "ORCHESTRATOR",
-                "llm": {"model": "gpt-4o-mini"},
+                "mailbox": {"max_size": 400},
+                "llm": {"model": "gpt-5-nano"},
             },
             "workers": [],
+            "logging": {
+                "verbose": False,
+                "log_path": "logs",
+                "log_file": f"{config.name.lower().replace(' ', '_')}.log",
+            },
         }
 
         for agent in config.agents:
             config_dict["workers"].append(
                 {
                     "name": agent["name"],
+                    "description": agent.get(
+                        "description", f"this is {agent['name'].lower()} agent"
+                    ),
                     "role": agent["role"],
                     "backstory": agent.get("backstory", ""),
-                    "llm": {"model": "gpt-4o-mini"},
+                    "mailbox": {"max_size": 100},
+                    "llm": {"model": "gpt-5-nano"},
                 }
             )
 
+        self.simulations_path.mkdir(parents=True, exist_ok=True)
+
+        config_file_path = self.simulations_path / f"{config.name}.json"
+        with open(config_file_path, "w") as f:
+            json.dump(config_dict, f, indent=2)
+
+        logger.info(f"Saved simulation config to {config_file_path}")
+
         return {
             "config": config_dict,
-            "message": "Configuration created. Use this with start_simulation's custom_config parameter.",
+            "config_path": str(config_file_path),
+            "message": f"Configuration created and saved to {config_file_path}. You can now use 'start_simulation' with config_name: '{config.name}'",
         }
 
     async def _save_custom_config(self, config: Dict) -> Path:
+        self.simulations_path.mkdir(parents=True, exist_ok=True)
 
-        import tempfile
+        config_name = config.get("name", f"custom_{int(time.time())}")
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, dir="/tmp"
-        ) as f:
+        config_file_path = self.simulations_path / f"{config_name}.json"
+
+        with open(config_file_path, "w") as f:
             json.dump(config, f, indent=2)
-            return Path(f.name)
+
+        logger.info(f"Saved custom simulation config to {config_file_path}")
+        return config_file_path
 
     def _get_default_metrics_path(self) -> Path:
-
         default_metrics = self.metrics_path / "default.json"
         if default_metrics.exists():
             return default_metrics
-
 
         if self.metrics_path.exists():
             metrics_files = list(self.metrics_path.glob("*.json"))
             if metrics_files:
                 return metrics_files[0]
 
-
         return Path("/tmp/empty_metrics.json")
 
-    async def run(self):
+    async def _create_simulation_metrics(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create metrics configuration for a simulation."""
+        import os
 
+        simulation_name = params["simulation_name"]
+        use_llm = params.get("use_llm", True)
+        custom_metrics = params.get("custom_metrics", [])
+
+        sim_config_path = self.simulations_path / f"{simulation_name}.json"
+        if not sim_config_path.exists():
+            return {"error": f"Simulation config '{simulation_name}' not found"}
+
+        with open(sim_config_path, "r") as f:
+            sim_config = json.load(f)
+
+        if use_llm:
+            try:
+                from openai import OpenAI
+
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    return {"error": "OPENAI_API_KEY environment variable not set"}
+
+                client = OpenAI(api_key=api_key)
+
+                system_prompt = """<objective>
+You are a smart Simulation Analyst. Your mission is to evaluate and analyse a simulation and design and define which metrics are relevant to measure the performance of the simulation and the system's behavior.
+</objective>
+
+<scope>
+These are SOME general aspect of metrics:
+
+1. Performance Metrics:
+   • Resource Utilization: Tracks how efficiently resources are used by agents
+   • Throughput: Measures the amount of work generated within a time frame
+   • Response Time/Latency: Time taken to respond to events
+
+2. Behavioral Metrics:
+   • Agent Interaction Frequency: How often agents interact
+   • Decision-Making Patterns: Choices agents make under conditions
+   • Emergent Behaviors: Patterns arising from collective actions
+
+3. Outcome Metrics:
+   • Success Rate/Goal Achievement: How often goals are reached
+   • System Stability: How stable the system remains over time
+   • Resource Depletion/Regeneration: Resource consumption vs replenishment
+
+4. Efficiency Metrics:
+   • Cost Efficiency: Costs vs outputs generated
+   • Time Efficiency: Time taken relative to expected time
+
+5. Risk and Uncertainty Metrics:
+   • Risk Exposure: Potential risks and impacts
+   • Uncertainty Quantification: How uncertainty propagates
+
+6. Adaptability and Resilience Metrics:
+   • Adaptation Rate: How quickly agents adapt to changes
+   • System Resilience: Ability to recover from disruptions
+
+7. Satisfaction and Quality Metrics:
+   • Agent Satisfaction: Overall satisfaction of agents
+   • Quality of Output: Quality of outcomes produced
+</scope>
+
+<output>
+You have to come up with STRUCTURED METRICS. This is a JSON array with a list of metrics that you consider relevant for the simulation you are analyzing.
+Each metric should include: name (snake_case), description, type (COUNTER, GAUGE, or HISTOGRAM), unit, and tags array.
+
+Your output MUST be only a valid JSON array of metric objects. Example format:
+[
+  {
+    "name": "agent_interactions_total",
+    "description": "Counts total interactions between agents",
+    "type": "COUNTER",
+    "unit": "interactions",
+    "tags": [
+      {
+        "tag": "agent_name",
+        "description": "Name of the interacting agent"
+      }
+    ]
+  },
+  {
+    "name": "decision_time_seconds",
+    "description": "Time taken to make decisions",
+    "type": "HISTOGRAM",
+    "unit": "seconds",
+    "tags": []
+  }
+]
+</output>"""
+
+                user_prompt = f"""Analyze this simulation and create relevant metrics:
+
+Simulation Name: {sim_config["name"]}
+Description: {sim_config["description"]}
+Task: {sim_config.get("task", sim_config["description"])}
+
+Agents:
+"""
+                for worker in sim_config.get("workers", []):
+                    user_prompt += f"- {worker['name']}: {worker['role']}"
+                    if worker.get("backstory"):
+                        user_prompt += f" (Background: {worker['backstory'][:200]}...)"
+                    user_prompt += "\n"
+
+                user_prompt += "\nCreate appropriate metrics to track this simulation's performance and outcomes."
+
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.7,
+                    max_tokens=2000,
+                )
+
+                metrics_text = response.choices[0].message.content.strip()
+
+                if "```json" in metrics_text:
+                    metrics_text = (
+                        metrics_text.split("```json")[1].split("```")[0].strip()
+                    )
+                elif "```" in metrics_text:
+                    metrics_text = metrics_text.split("```")[1].split("```")[0].strip()
+
+                try:
+                    metrics = json.loads(metrics_text)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse LLM response as JSON: {e}")
+                    logger.error(f"Response was: {metrics_text}")
+                    return {"error": f"Failed to parse LLM response: {e}"}
+
+            except ImportError:
+                return {
+                    "error": "OpenAI library not installed. Run: pip install openai"
+                }
+            except Exception as e:
+                logger.error(f"Error calling OpenAI API: {e}")
+                return {"error": f"Failed to generate metrics with LLM: {str(e)}"}
+        else:
+            if not custom_metrics:
+                return {"error": "No custom metrics provided and use_llm is false"}
+            metrics = custom_metrics
+
+        metrics_dir = Path.home() / ".autobox" / "config" / "metrics"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+
+        metrics_file_path = metrics_dir / f"{simulation_name}.json"
+        with open(metrics_file_path, "w") as f:
+            json.dump(metrics, f, indent=4)
+
+        logger.info(f"Saved metrics config to {metrics_file_path}")
+
+        return {
+            "metrics": metrics,
+            "metrics_path": str(metrics_file_path),
+            "message": f"Metrics created and saved to {metrics_file_path}",
+            "simulation_name": simulation_name,
+        }
+
+    async def run(self):
         from mcp.server import InitializationOptions
         from mcp.types import ServerCapabilities
 
@@ -487,7 +698,6 @@ class AutoboxMCPServer:
 
 
 def main():
-
     server = AutoboxMCPServer()
     asyncio.run(server.run())
 
