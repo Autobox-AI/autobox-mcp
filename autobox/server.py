@@ -726,7 +726,51 @@ Agents:
                 host_port = ports[port_key][0]["HostPort"]
                 host_ip = ports[port_key][0].get("HostIp", "localhost")
                 if host_ip == "0.0.0.0":
-                    host_ip = "localhost"
+                    import os
+
+                    if os.path.exists("/.dockerenv"):
+                        # We're in a container, need to use host gateway
+                        # Try host.docker.internal first (works on Docker Desktop)
+                        import socket
+
+                        try:
+                            socket.gethostbyname("host.docker.internal")
+                            host_ip = "host.docker.internal"
+                            logger.info(
+                                "Using host.docker.internal for container-to-host communication"
+                            )
+                        except socket.gaierror:
+                            try:
+                                import subprocess
+
+                                result = subprocess.run(
+                                    ["ip", "route", "show", "default"],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=1,
+                                )
+                                if result.returncode == 0 and result.stdout:
+                                    parts = result.stdout.split()
+                                    if (
+                                        len(parts) > 2
+                                        and parts[0] == "default"
+                                        and parts[1] == "via"
+                                    ):
+                                        host_ip = parts[2]
+                                        logger.info(
+                                            f"Using Docker gateway IP: {host_ip}"
+                                        )
+                                    else:
+                                        host_ip = "172.17.0.1"
+                                else:
+                                    host_ip = "172.17.0.1"
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to detect Docker gateway: {e}, using default 172.17.0.1"
+                                )
+                                host_ip = "172.17.0.1"
+                    else:
+                        host_ip = "localhost"
 
                 import json
 
@@ -734,13 +778,15 @@ Agents:
 
                 async with httpx.AsyncClient() as client:
                     try:
+                        url = f"http://{host_ip}:{host_port}/instructions/agents/{agent_name.lower()}"
+                        logger.info(f"Sending instruction to: {url}")
                         response = await client.post(
-                            f"http://{host_ip}:{host_port}/instructions/agents/{agent_name}",
+                            url,
                             json={"instruction": instruction},
                             timeout=10.0,
                         )
 
-                        if response.status_code == 200:
+                        if response.status_code in [200, 202]:
                             return json.dumps(
                                 {
                                     "success": True,
@@ -777,12 +823,12 @@ Agents:
                     async with httpx.AsyncClient() as client:
                         try:
                             response = await client.post(
-                                f"http://{ip_address}:{port}/instructions/agents/{agent_name}",
+                                f"http://{ip_address}:{port}/instructions/agents/{agent_name.lower()}",
                                 json={"instruction": instruction},
                                 timeout=10.0,
                             )
 
-                            if response.status_code == 200:
+                            if response.status_code in [200, 202]:
                                 return json.dumps(
                                     {
                                         "success": True,
