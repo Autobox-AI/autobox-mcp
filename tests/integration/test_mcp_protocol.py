@@ -1,7 +1,7 @@
 """Integration tests for MCP protocol implementation."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -122,7 +122,8 @@ class TestMCPProtocol:
         }
 
         with patch("pathlib.Path.mkdir"):
-            with patch("pathlib.Path.open", create=True):
+            with patch("builtins.open", create=True) as mock_open:
+                mock_open.return_value.__enter__.return_value = MagicMock()
                 with patch("json.dump"):
                     result = await mcp_server._create_simulation_config(params)
 
