@@ -220,6 +220,28 @@ class AutoboxMCPServer:
                         "required": ["simulation_name"],
                     },
                 ),
+                Tool(
+                    name="instruct_agent",
+                    description="Send instructions to a specific agent in an ongoing simulation",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "simulation_id": {
+                                "type": "string",
+                                "description": "ID of the running simulation",
+                            },
+                            "agent_name": {
+                                "type": "string",
+                                "description": "Name of the agent to instruct",
+                            },
+                            "instruction": {
+                                "type": "string",
+                                "description": "Instruction to send to the agent",
+                            },
+                        },
+                        "required": ["simulation_id", "agent_name", "instruction"],
+                    },
+                ),
             ]
 
         @self.server.call_tool()
@@ -256,6 +278,12 @@ class AutoboxMCPServer:
                     result = await self._stop_all_simulations()
                 elif name == "create_simulation_metrics":
                     result = await self._create_simulation_metrics(arguments)
+                elif name == "instruct_agent":
+                    result = await self._instruct_agent(
+                        arguments["simulation_id"],
+                        arguments["agent_name"],
+                        arguments["instruction"],
+                    )
                 else:
                     result = f"Unknown tool: {name}"
 
@@ -680,6 +708,108 @@ Agents:
             "message": f"Metrics created and saved to {metrics_file_path}",
             "simulation_name": simulation_name,
         }
+
+    async def _instruct_agent(
+        self, simulation_id: str, agent_name: str, instruction: str
+    ) -> str:
+        try:
+            container = self.docker_manager.client.containers.get(simulation_id)
+            if container.status != "running":
+                return f"Simulation {simulation_id} is not running"
+
+            port = int(container.labels.get("autobox.api_port", "9000"))
+            container_info = container.attrs
+            ports = container_info.get("NetworkSettings", {}).get("Ports", {})
+
+            port_key = f"{port}/tcp"
+            if port_key in ports and ports[port_key]:
+                host_port = ports[port_key][0]["HostPort"]
+                host_ip = ports[port_key][0].get("HostIp", "localhost")
+                if host_ip == "0.0.0.0":
+                    host_ip = "localhost"
+
+                import json
+
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    try:
+                        response = await client.post(
+                            f"http://{host_ip}:{host_port}/instructions/agents/{agent_name}",
+                            json={"instruction": instruction},
+                            timeout=10.0,
+                        )
+
+                        if response.status_code == 200:
+                            return json.dumps(
+                                {
+                                    "success": True,
+                                    "message": f"Instruction sent to agent {agent_name}",
+                                    "response": response.json()
+                                    if response.text
+                                    else None,
+                                }
+                            )
+                        else:
+                            return json.dumps(
+                                {
+                                    "success": False,
+                                    "error": f"API returned status {response.status_code}",
+                                    "details": response.text,
+                                }
+                            )
+                    except Exception as e:
+                        return json.dumps(
+                            {
+                                "success": False,
+                                "error": f"Failed to send instruction: {str(e)}",
+                            }
+                        )
+
+            networks = container_info.get("NetworkSettings", {}).get("Networks", {})
+            for network_name, network_info in networks.items():
+                ip_address = network_info.get("IPAddress")
+                if ip_address:
+                    import json
+
+                    import httpx
+
+                    async with httpx.AsyncClient() as client:
+                        try:
+                            response = await client.post(
+                                f"http://{ip_address}:{port}/instructions/agents/{agent_name}",
+                                json={"instruction": instruction},
+                                timeout=10.0,
+                            )
+
+                            if response.status_code == 200:
+                                return json.dumps(
+                                    {
+                                        "success": True,
+                                        "message": f"Instruction sent to agent {agent_name}",
+                                        "response": response.json()
+                                        if response.text
+                                        else None,
+                                    }
+                                )
+                            else:
+                                return json.dumps(
+                                    {
+                                        "success": False,
+                                        "error": f"API returned status {response.status_code}",
+                                        "details": response.text,
+                                    }
+                                )
+                        except Exception:
+                            pass
+
+            return json.dumps(
+                {"success": False, "error": "Could not connect to simulation API"}
+            )
+
+        except Exception as e:
+            logger.error(f"Error instructing agent: {e}")
+            return json.dumps({"success": False, "error": str(e)})
 
     async def run(self):
         from mcp.server import InitializationOptions
