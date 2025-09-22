@@ -317,3 +317,100 @@ class TestMCPProtocol:
 
         assert "error" in result
         assert "OPENAI_API_KEY" in result["error"] or "OpenAI" in result["error"]
+
+    @patch("openai.OpenAI")
+    async def test_create_simulation_metrics_llm_with_mock(
+        self, mock_openai_class, mcp_server, tmp_path, monkeypatch
+    ):
+        """Test that LLM metrics generation produces correct tag format."""
+        test_simulations_path = tmp_path / "simulations"
+        mcp_server.simulations_path = test_simulations_path
+        test_simulations_path.mkdir(parents=True, exist_ok=True)
+
+        sim_config = {
+            "name": "test_sim",
+            "description": "Test simulation for metrics",
+            "task": "Testing metrics generation",
+            "workers": [
+                {
+                    "name": "agent1",
+                    "role": "test agent",
+                    "backstory": "A test agent for testing",
+                }
+            ],
+        }
+        with open(test_simulations_path / "test_sim.json", "w") as f:
+            json.dump(sim_config, f)
+
+        mock_openai = MagicMock()
+        mock_openai_class.return_value = mock_openai
+
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(
+                message=MagicMock(
+                    content=json.dumps(
+                        [
+                            {
+                                "name": "agent_decisions_total",
+                                "description": "Total number of decisions made by agents",
+                                "type": "COUNTER",
+                                "unit": "decisions",
+                                "tags": [
+                                    {
+                                        "tag": "agent_name",
+                                        "description": "Name of the agent making decisions",
+                                    },
+                                    {
+                                        "tag": "decision_type",
+                                        "description": "Type of decision made",
+                                    },
+                                ],
+                            },
+                            {
+                                "name": "task_completion_time",
+                                "description": "Time taken to complete tasks",
+                                "type": "HISTOGRAM",
+                                "unit": "seconds",
+                                "tags": [
+                                    {
+                                        "tag": "task_type",
+                                        "description": "Type of task completed",
+                                    }
+                                ],
+                            },
+                        ]
+                    )
+                )
+            )
+        ]
+        mock_openai.chat.completions.create.return_value = mock_response
+
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        with patch("pathlib.Path.home") as mock_home:
+            mock_home.return_value = tmp_path.parent
+
+            params = {"simulation_name": "test_sim", "use_llm": True}
+            result = await mcp_server._create_simulation_metrics(params)
+
+        assert "error" not in result
+        assert "metrics" in result
+        assert len(result["metrics"]) == 2
+
+        metric1 = result["metrics"][0]
+        assert metric1["name"] == "agent_decisions_total"
+        assert metric1["type"] == "COUNTER"
+        assert len(metric1["tags"]) == 2
+
+        tag1 = metric1["tags"][0]
+        assert "tag" in tag1
+        assert "description" in tag1
+        assert tag1["tag"] == "agent_name"
+        assert tag1["description"] == "Name of the agent making decisions"
+
+        metric2 = result["metrics"][1]
+        assert metric2["name"] == "task_completion_time"
+        assert metric2["type"] == "HISTOGRAM"
+        assert len(metric2["tags"]) == 1
+        assert metric2["tags"][0]["tag"] == "task_type"
