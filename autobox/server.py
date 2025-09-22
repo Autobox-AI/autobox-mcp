@@ -242,6 +242,20 @@ class AutoboxMCPServer:
                         "required": ["simulation_id", "agent_name", "instruction"],
                     },
                 ),
+                Tool(
+                    name="delete_simulation",
+                    description="Delete a simulation configuration and its associated metrics files",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "simulation_name": {
+                                "type": "string",
+                                "description": "Name of the simulation to delete (without file extension)",
+                            },
+                        },
+                        "required": ["simulation_name"],
+                    },
+                ),
             ]
 
         @self.server.call_tool()
@@ -284,6 +298,8 @@ class AutoboxMCPServer:
                         arguments["agent_name"],
                         arguments["instruction"],
                     )
+                elif name == "delete_simulation":
+                    result = await self._delete_simulation(arguments["simulation_name"])
                 else:
                     result = f"Unknown tool: {name}"
 
@@ -856,6 +872,81 @@ Agents:
         except Exception as e:
             logger.error(f"Error instructing agent: {e}")
             return json.dumps({"success": False, "error": str(e)})
+
+    async def _delete_simulation(self, simulation_name: str) -> Dict[str, Any]:
+        """Delete a simulation configuration and its associated metrics files."""
+        try:
+            deleted_files = []
+            errors = []
+
+            config_extensions = [".json", ".toml"]
+            config_deleted = False
+
+            for ext in config_extensions:
+                config_file = self.simulations_path / f"{simulation_name}{ext}"
+                if config_file.exists():
+                    try:
+                        config_file.unlink()
+                        deleted_files.append(str(config_file))
+                        config_deleted = True
+                        logger.info(f"Deleted simulation config: {config_file}")
+                    except Exception as e:
+                        errors.append(
+                            f"Failed to delete config {config_file}: {str(e)}"
+                        )
+                        logger.error(f"Error deleting config {config_file}: {e}")
+
+            if not config_deleted:
+                errors.append(f"No simulation config found for '{simulation_name}'")
+
+            metrics_file = self.metrics_path / f"{simulation_name}.json"
+            if metrics_file.exists():
+                try:
+                    metrics_file.unlink()
+                    deleted_files.append(str(metrics_file))
+                    logger.info(f"Deleted metrics file: {metrics_file}")
+                except Exception as e:
+                    errors.append(f"Failed to delete metrics {metrics_file}: {str(e)}")
+                    logger.error(f"Error deleting metrics {metrics_file}: {e}")
+            else:
+                logger.info(f"No metrics file found for '{simulation_name}'")
+
+            running_sim = None
+            for sim_id, status in self.simulations.items():
+                if status.name == simulation_name and status.status == "running":
+                    running_sim = sim_id
+                    break
+
+            result = {
+                "simulation_name": simulation_name,
+                "deleted_files": deleted_files,
+                "success": len(deleted_files) > 0,
+            }
+
+            if errors:
+                result["errors"] = errors
+
+            if running_sim:
+                result["warning"] = (
+                    f"Simulation '{simulation_name}' is currently running with ID {running_sim}. Configuration deleted but container still active."
+                )
+
+            if not deleted_files and not errors:
+                result["message"] = f"No files found for simulation '{simulation_name}'"
+            elif deleted_files:
+                result["message"] = (
+                    f"Successfully deleted {len(deleted_files)} file(s) for simulation '{simulation_name}'"
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error deleting simulation {simulation_name}: {e}")
+            return {
+                "simulation_name": simulation_name,
+                "success": False,
+                "error": str(e),
+            }
 
     async def run(self):
         from mcp.server import InitializationOptions

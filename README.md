@@ -176,6 +176,13 @@ Cursor doesn't natively support MCP servers, but you can use the Autobox CLI dir
 
 - `list_available_configs` - List available simulation templates
 - `create_simulation_config` - Create new simulation config with AI assistance
+- `create_simulation_metrics` - Create metrics configuration with AI assistance
+- `delete_simulation` - Delete a simulation configuration and its metrics files
+
+### Advanced
+
+- `instruct_agent` - Send instructions to agents in running simulations
+- `stop_all_simulations` - Stop all running simulations at once
 
 ## Example Usage in Claude
 
@@ -185,6 +192,8 @@ Cursor doesn't natively support MCP servers, but you can use the Autobox CLI dir
 "Show me the status of running simulations"
 "Create a new simulation about negotiating a business deal"
 "Get the logs from simulation abc123"
+"Delete the test_simulation config and its metrics"
+"Send an instruction to Alice in the running simulation"
 ```
 
 ## Troubleshooting
