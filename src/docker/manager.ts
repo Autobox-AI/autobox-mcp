@@ -8,6 +8,7 @@ interface StartSimulationOptions {
   configPath: string;
   metricsPath: string;
   serverConfigPath?: string;
+  daemon?: boolean; // Optional: run in daemon mode (default: false)
 }
 
 export class DockerManager {
@@ -42,13 +43,11 @@ export class DockerManager {
     }
   }
 
-  async startSimulation(options: StartSimulationOptions): Promise<string> {
-    const { configPath, metricsPath, serverConfigPath } = options;
+  async startSimulation(options: StartSimulationOptions): Promise<{ containerId: string; hostPort: number }> {
+    const { configPath, daemon = false } = options;
     const configName = configPath.split('/').pop()?.replace('.json', '') || 'unknown';
 
-    const serverPath = serverConfigPath || join(homedir(), '.autobox/config/server.json');
-
-    const apiPort = 9000;
+        const apiPort = 9000;
     const hostPort = await this.findAvailablePort();
 
     logger.info(`Starting simulation ${configName} on host port ${hostPort}`);
@@ -62,16 +61,8 @@ export class DockerManager {
       : autoboxPath;
 
     const volumes = {
-      [`${hostAutoboxPath}/config/simulations`]: {
-        bind: '/app/configs/simulations',
-        mode: 'ro',
-      },
-      [`${hostAutoboxPath}/config/metrics`]: {
-        bind: '/app/configs/metrics',
-        mode: 'ro',
-      },
       [`${hostAutoboxPath}/config`]: {
-        bind: '/app/configs/server',
+        bind: '/app/configs',
         mode: 'ro',
       },
     };
@@ -81,16 +72,20 @@ export class DockerManager {
     const container = await this.client.createContainer({
       Image: this.imageName,
       name: containerName,
+      ExposedPorts: {
+        [`${apiPort}/tcp`]: {},
+      },
       Cmd: [
         '--config',
-        `/app/configs/simulations/${configPath.split('/').pop()}`,
-        '--metrics',
-        `/app/configs/metrics/${metricsPath.split('/').pop()}`,
-        '--server',
-        `/app/configs/server/${serverPath.split('/').pop()}`,
+        '/app/configs',
+        '--simulation-name',
+        configName,
+        ...(daemon ? ['--daemon'] : []),
       ],
       Env: [
         `OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}`,
+        `JWT_SECRET=${process.env.JWT_SECRET || 'dev-secret-key-change-in-production'}`,
+        `JWT_EXPIRES_IN=${process.env.JWT_EXPIRES_IN || '24h'}`,
         'OBJC_DISABLE_INITIALIZE_FORK_SAFETY=TRUE',
         'PYTHONUNBUFFERED=1',
         `AUTOBOX_EXTERNAL_PORT=${hostPort}`,
@@ -113,8 +108,12 @@ export class DockerManager {
 
     await container.start();
     logger.info(`Started simulation container: ${container.id.substring(0, 12)}`);
+    logger.info(`🌐 Access simulation API at: http://localhost:${hostPort}`);
 
-    return container.id.substring(0, 12);
+    return {
+      containerId: container.id.substring(0, 12),
+      hostPort,
+    };
   }
 
   async stopSimulation(containerId: string): Promise<boolean> {
@@ -185,16 +184,28 @@ export class DockerManager {
 
   async getContainerStatus(
     containerId: string
-  ): Promise<{ id: string; name: string; status: string; running: boolean } | null> {
+  ): Promise<{ id: string; name: string; status: string; running: boolean; ports?: Record<string, string> } | null> {
     try {
       const container = this.client.getContainer(containerId);
       const info = await container.inspect();
+
+      // Extract port mappings
+      const ports: Record<string, string> = {};
+      if (info.NetworkSettings?.Ports) {
+        for (const [containerPort, hostBindings] of Object.entries(info.NetworkSettings.Ports)) {
+          if (hostBindings && Array.isArray(hostBindings) && hostBindings.length > 0) {
+            const hostPort = hostBindings[0].HostPort;
+            ports[containerPort] = `localhost:${hostPort}`;
+          }
+        }
+      }
 
       return {
         id: info.Id.substring(0, 12),
         name: info.Name.replace(/^\//, ''),
         status: info.State.Status,
         running: info.State.Running,
+        ports: Object.keys(ports).length > 0 ? ports : undefined,
       };
     } catch (error) {
       if ((error as { statusCode?: number }).statusCode === 404) {
@@ -208,20 +219,48 @@ export class DockerManager {
   async getLogs(containerId: string, tail = 100): Promise<string | null> {
     try {
       const container = this.client.getContainer(containerId);
-      const logs = await container.logs({
+      const logStream = await container.logs({
         stdout: true,
         stderr: true,
         tail,
         timestamps: true,
+        follow: false,
       });
 
-      return logs.toString('utf-8');
+      // Docker logs return a Buffer, but it's multiplexed with 8-byte headers
+      // We need to properly demux it or convert it carefully
+      if (Buffer.isBuffer(logStream)) {
+        // Simple approach: strip the headers (first 8 bytes of each frame)
+        const lines: string[] = [];
+        let offset = 0;
+        const buffer = logStream as Buffer;
+
+        while (offset < buffer.length) {
+          // Docker frame format: [stream_type, 0, 0, 0, size1, size2, size3, size4, ...data]
+          if (offset + 8 > buffer.length) break;
+
+          const size = buffer.readUInt32BE(offset + 4);
+          const frameStart = offset + 8;
+          const frameEnd = frameStart + size;
+
+          if (frameEnd > buffer.length) break;
+
+          const line = buffer.toString('utf-8', frameStart, frameEnd);
+          lines.push(line);
+          offset = frameEnd;
+        }
+
+        return lines.join('');
+      }
+
+      // Fallback for non-buffer responses
+      return String(logStream);
     } catch (error) {
       if ((error as { statusCode?: number }).statusCode === 404) {
         return null;
       }
       logger.error('Error getting logs:', error);
-      return null;
+      throw error; // Re-throw to see the actual error
     }
   }
 
@@ -286,7 +325,7 @@ export class DockerManager {
         const hostPort = portBindings[0].HostPort;
         const hostIp = portBindings[0].HostIp === '0.0.0.0' ? 'localhost' : portBindings[0].HostIp;
 
-        metrics = await this.fetchMetricsFromApi(`http://${hostIp}:${hostPort}/metrics`);
+        metrics = await this.fetchMetricsFromApi(`http://${hostIp}:${hostPort}/v1/metrics`);
       }
 
       if (!metrics) {
@@ -294,7 +333,7 @@ export class DockerManager {
         for (const network of Object.values(networks)) {
           if (network.IPAddress) {
             metrics = await this.fetchMetricsFromApi(
-              `http://${network.IPAddress}:${apiPort}/metrics`
+              `http://${network.IPAddress}:${apiPort}/v1/metrics`
             );
             if (metrics) break;
           }
@@ -341,7 +380,7 @@ export class DockerManager {
       if (portBindings && portBindings.length > 0) {
         const hostPort = portBindings[0].HostPort;
         const hostIp = portBindings[0].HostIp === '0.0.0.0' ? 'localhost' : portBindings[0].HostIp;
-        const url = `http://${hostIp}:${hostPort}/instructions/agents/${agentName.toLowerCase()}`;
+        const url = `http://${hostIp}:${hostPort}/v1/instructions/agents/${agentName.toLowerCase()}`;
 
         return await this.sendInstructionToApi(url, instruction);
       }
@@ -349,7 +388,7 @@ export class DockerManager {
       const networks = info.NetworkSettings.Networks || {};
       for (const network of Object.values(networks)) {
         if (network.IPAddress) {
-          const url = `http://${network.IPAddress}:${apiPort}/instructions/agents/${agentName.toLowerCase()}`;
+          const url = `http://${network.IPAddress}:${apiPort}/v1/instructions/agents/${agentName.toLowerCase()}`;
           const result = await this.sendInstructionToApi(url, instruction);
           if (result.success) return result;
         }
@@ -359,6 +398,213 @@ export class DockerManager {
     } catch (error) {
       logger.error('Error instructing agent:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+
+  async pingSimulation(containerId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const container = this.client.getContainer(containerId);
+      const info = await container.inspect();
+
+      if (!info.State.Running) {
+        return { success: false, error: `Simulation ${containerId} is not running` };
+      }
+
+      const apiPort = info.Config.Labels?.['autobox.api_port'] || '9000';
+      const portBindings = info.NetworkSettings.Ports?.[`${apiPort}/tcp`];
+
+      if (portBindings && portBindings.length > 0) {
+        const hostPort = portBindings[0].HostPort;
+        const hostIp = portBindings[0].HostIp === '0.0.0.0' ? 'localhost' : portBindings[0].HostIp;
+        const result = await this.fetchTextFromApi(`http://${hostIp}:${hostPort}/ping`);
+        if (result === 'pong') return { success: true, message: 'Simulation API is responsive' };
+      }
+
+      const networks = info.NetworkSettings.Networks || {};
+      for (const network of Object.values(networks)) {
+        if (network.IPAddress) {
+          const result = await this.fetchTextFromApi(`http://${network.IPAddress}:${apiPort}/ping`);
+          if (result === 'pong') return { success: true, message: 'Simulation API is responsive' };
+        }
+      }
+
+      return { success: false, error: 'Could not connect to simulation API' };
+    } catch (error) {
+      logger.error('Error pinging simulation:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async getSimulationHealth(containerId: string): Promise<unknown> {
+    try {
+      const container = this.client.getContainer(containerId);
+      const info = await container.inspect();
+
+      if (!info.State.Running) {
+        return { error: `Simulation ${containerId} is not running` };
+      }
+
+      const apiPort = info.Config.Labels?.['autobox.api_port'] || '9000';
+      const portBindings = info.NetworkSettings.Ports?.[`${apiPort}/tcp`];
+
+      if (portBindings && portBindings.length > 0) {
+        const hostPort = portBindings[0].HostPort;
+        const hostIp = portBindings[0].HostIp === '0.0.0.0' ? 'localhost' : portBindings[0].HostIp;
+        const result = await this.fetchFromApi(`http://${hostIp}:${hostPort}/health`);
+        if (result) return result;
+      }
+
+      const networks = info.NetworkSettings.Networks || {};
+      for (const network of Object.values(networks)) {
+        if (network.IPAddress) {
+          const result = await this.fetchFromApi(`http://${network.IPAddress}:${apiPort}/health`);
+          if (result) return result;
+        }
+      }
+
+      return { error: 'Could not connect to simulation API' };
+    } catch (error) {
+      logger.error('Error getting simulation health:', error);
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async getSimulationExecutionStatus(containerId: string): Promise<unknown> {
+    try {
+      const container = this.client.getContainer(containerId);
+      const info = await container.inspect();
+
+      if (!info.State.Running) {
+        return { error: `Simulation ${containerId} is not running` };
+      }
+
+      const apiPort = info.Config.Labels?.['autobox.api_port'] || '9000';
+      const portBindings = info.NetworkSettings.Ports?.[`${apiPort}/tcp`];
+
+      if (portBindings && portBindings.length > 0) {
+        const hostPort = portBindings[0].HostPort;
+        const hostIp = portBindings[0].HostIp === '0.0.0.0' ? 'localhost' : portBindings[0].HostIp;
+        const result = await this.fetchFromApi(`http://${hostIp}:${hostPort}/v1/status`);
+        if (result) return result;
+      }
+
+      const networks = info.NetworkSettings.Networks || {};
+      for (const network of Object.values(networks)) {
+        if (network.IPAddress) {
+          const result = await this.fetchFromApi(`http://${network.IPAddress}:${apiPort}/v1/status`);
+          if (result) return result;
+        }
+      }
+
+      return { error: 'Could not connect to simulation API' };
+    } catch (error) {
+      logger.error('Error getting simulation execution status:', error);
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async abortSimulation(containerId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const container = this.client.getContainer(containerId);
+      const info = await container.inspect();
+
+      if (!info.State.Running) {
+        return { success: false, error: `Simulation ${containerId} is not running` };
+      }
+
+      const apiPort = info.Config.Labels?.['autobox.api_port'] || '9000';
+      const portBindings = info.NetworkSettings.Ports?.[`${apiPort}/tcp`];
+
+      if (portBindings && portBindings.length > 0) {
+        const hostPort = portBindings[0].HostPort;
+        const hostIp = portBindings[0].HostIp === '0.0.0.0' ? 'localhost' : portBindings[0].HostIp;
+        const url = `http://${hostIp}:${hostPort}/v1/abort`;
+        const result = await this.postToApi(url);
+        if (result.success) return result;
+      }
+
+      const networks = info.NetworkSettings.Networks || {};
+      for (const network of Object.values(networks)) {
+        if (network.IPAddress) {
+          const url = `http://${network.IPAddress}:${apiPort}/v1/abort`;
+          const result = await this.postToApi(url);
+          if (result.success) return result;
+        }
+      }
+
+      return { success: false, error: 'Could not connect to simulation API' };
+    } catch (error) {
+      logger.error('Error aborting simulation:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async getSimulationInfo(containerId: string): Promise<unknown> {
+    try {
+      const container = this.client.getContainer(containerId);
+      const info = await container.inspect();
+
+      if (!info.State.Running) {
+        return { error: `Simulation ${containerId} is not running` };
+      }
+
+      const apiPort = info.Config.Labels?.['autobox.api_port'] || '9000';
+      const portBindings = info.NetworkSettings.Ports?.[`${apiPort}/tcp`];
+
+      if (portBindings && portBindings.length > 0) {
+        const hostPort = portBindings[0].HostPort;
+        const hostIp = portBindings[0].HostIp === '0.0.0.0' ? 'localhost' : portBindings[0].HostIp;
+        const result = await this.fetchFromApi(`http://${hostIp}:${hostPort}/v1/info`);
+        if (result) return result;
+      }
+
+      const networks = info.NetworkSettings.Networks || {};
+      for (const network of Object.values(networks)) {
+        if (network.IPAddress) {
+          const result = await this.fetchFromApi(`http://${network.IPAddress}:${apiPort}/v1/info`);
+          if (result) return result;
+        }
+      }
+
+      return { error: 'Could not connect to simulation API' };
+    } catch (error) {
+      logger.error('Error getting simulation info:', error);
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async getSimulationApiSpec(containerId: string): Promise<unknown> {
+    try {
+      const container = this.client.getContainer(containerId);
+      const info = await container.inspect();
+
+      if (!info.State.Running) {
+        return { error: `Simulation ${containerId} is not running` };
+      }
+
+      const apiPort = info.Config.Labels?.['autobox.api_port'] || '9000';
+      const portBindings = info.NetworkSettings.Ports?.[`${apiPort}/tcp`];
+
+      if (portBindings && portBindings.length > 0) {
+        const hostPort = portBindings[0].HostPort;
+        const hostIp = portBindings[0].HostIp === '0.0.0.0' ? 'localhost' : portBindings[0].HostIp;
+        const result = await this.fetchFromApi(`http://${hostIp}:${hostPort}/`);
+        if (result) return result;
+      }
+
+      const networks = info.NetworkSettings.Networks || {};
+      for (const network of Object.values(networks)) {
+        if (network.IPAddress) {
+          const result = await this.fetchFromApi(`http://${network.IPAddress}:${apiPort}/`);
+          if (result) return result;
+        }
+      }
+
+      return { error: 'Could not connect to simulation API' };
+    } catch (error) {
+      logger.error('Error getting simulation API spec:', error);
+      return { error: error instanceof Error ? error.message : String(error) };
     }
   }
 
@@ -393,6 +639,66 @@ export class DockerManager {
         return {
           success: true,
           message: 'Instruction sent successfully',
+        };
+      }
+
+      return {
+        success: false,
+        error: `API returned status ${response.status}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+
+  private async fetchFromApi(url: string): Promise<unknown | null> {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch (error) {
+      logger.debug(`Failed to fetch from ${url}:`, error);
+    }
+    return null;
+  }
+
+
+  private async fetchTextFromApi(url: string): Promise<string | null> {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (response.ok) {
+        return await response.text();
+      }
+    } catch (error) {
+      logger.debug(`Failed to fetch text from ${url}:`, error);
+    }
+    return null;
+  }
+
+  private async postToApi(url: string, body?: Record<string, unknown>): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (response.ok) {
+        return {
+          success: true,
+          message: 'Request completed successfully',
         };
       }
 

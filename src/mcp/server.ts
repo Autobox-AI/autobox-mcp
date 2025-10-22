@@ -112,6 +112,36 @@ export class AutoboxMCPServer {
               ? await this.deleteSimulation(args.simulation_name as string)
               : { error: 'Missing arguments' };
             break;
+          case 'ping_simulation':
+            result = args
+              ? await this.pingSimulation(args.simulation_id as string)
+              : { error: 'Missing arguments' };
+            break;
+          case 'get_simulation_health':
+            result = args
+              ? await this.getSimulationHealth(args.simulation_id as string)
+              : { error: 'Missing arguments' };
+            break;
+          case 'get_simulation_execution_status':
+            result = args
+              ? await this.getSimulationExecutionStatus(args.simulation_id as string)
+              : { error: 'Missing arguments' };
+            break;
+          case 'abort_simulation':
+            result = args
+              ? await this.abortSimulation(args.simulation_id as string)
+              : { error: 'Missing arguments' };
+            break;
+          case 'get_simulation_info':
+            result = args
+              ? await this.getSimulationInfo(args.simulation_id as string)
+              : { error: 'Missing arguments' };
+            break;
+          case 'get_simulation_api_spec':
+            result = args
+              ? await this.getSimulationApiSpec(args.simulation_id as string)
+              : { error: 'Missing arguments' };
+            break;
           default:
             result = { error: `Unknown tool: ${name}` };
         }
@@ -155,7 +185,7 @@ export class AutoboxMCPServer {
   }
 
   private async startSimulation(args: Record<string, unknown>): Promise<unknown> {
-    const { config_name, custom_config } = args;
+    const { config_name, custom_config, daemon = false } = args;
 
     let configPath: string;
     let metricsPath: string;
@@ -176,10 +206,11 @@ export class AutoboxMCPServer {
       metricsPath = join(this.configManager.getMetricsPath(), `${config_name as string}.json`);
     }
 
-    const containerId = await this.dockerManager.startSimulation({
+    const { containerId, hostPort } = await this.dockerManager.startSimulation({
       configPath,
       metricsPath,
       serverConfigPath: this.configManager.getServerConfigPath(),
+      daemon: daemon as boolean,
     });
 
     const simStatus: SimulationStatus = {
@@ -195,6 +226,9 @@ export class AutoboxMCPServer {
       simulation_id: containerId,
       status: 'started',
       config: configPath,
+      daemon: daemon as boolean,
+      api_url: `http://localhost:${hostPort}`,
+      host_port: hostPort,
     };
   }
 
@@ -406,6 +440,31 @@ export class AutoboxMCPServer {
     }
 
     return response;
+  }
+
+
+  private async pingSimulation(simulationId: string): Promise<unknown> {
+    return await this.dockerManager.pingSimulation(simulationId);
+  }
+
+  private async getSimulationHealth(simulationId: string): Promise<unknown> {
+    return await this.dockerManager.getSimulationHealth(simulationId);
+  }
+
+  private async getSimulationExecutionStatus(simulationId: string): Promise<unknown> {
+    return await this.dockerManager.getSimulationExecutionStatus(simulationId);
+  }
+
+  private async abortSimulation(simulationId: string): Promise<unknown> {
+    return await this.dockerManager.abortSimulation(simulationId);
+  }
+
+  private async getSimulationInfo(simulationId: string): Promise<unknown> {
+    return await this.dockerManager.getSimulationInfo(simulationId);
+  }
+
+  private async getSimulationApiSpec(simulationId: string): Promise<unknown> {
+    return await this.dockerManager.getSimulationApiSpec(simulationId);
   }
 
   async run(): Promise<void> {

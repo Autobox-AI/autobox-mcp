@@ -130,6 +130,205 @@ yarn format
    # Should show: autobox ... ✓ Connected
    ```
 
+## Local Testing with JSON-RPC
+
+You can test the MCP server locally by running it directly and sending JSON-RPC messages via stdin/stdout.
+
+### 1. Run the Server Locally
+
+**Development mode (with auto-reload):**
+
+```bash
+yarn dev
+```
+
+**Built version:**
+
+```bash
+yarn build
+node dist/index.js
+```
+
+**Using Docker:**
+
+```bash
+./bin/docker-run
+```
+
+### 2. Send JSON-RPC Messages
+
+The MCP server uses JSON-RPC 2.0 protocol over stdio. Each message must be on a single line.
+
+#### Initialize the Connection
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}' | yarn dev
+```
+
+#### List Available Tools
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+```
+
+#### List Running Simulations
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_simulations","arguments":{}}}
+```
+
+#### List Available Configs
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_available_configs","arguments":{}}}
+```
+
+#### Start a Simulation
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"start_simulation","arguments":{"config_name":"gift_choice","daemon":false}}}
+```
+
+#### Get Simulation Status
+
+```json
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"get_simulation_status","arguments":{"simulation_id":"03a961047a33"}}}
+```
+
+#### Get Simulation Execution Status (from API)
+
+```json
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_simulation_execution_status","arguments":{"simulation_id":"03a961047a33"}}}
+```
+
+#### Get Simulation Metrics
+
+```json
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"get_simulation_metrics","arguments":{"simulation_id":"03a961047a33","include_docker_stats":true}}}
+```
+
+#### Ping Simulation API
+
+```json
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"ping_simulation","arguments":{"simulation_id":"abc123def456"}}}
+```
+
+#### Get Simulation Health
+
+```json
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"get_simulation_health","arguments":{"simulation_id":"03a961047a33"}}}
+```
+
+#### Instruct Agent
+
+```json
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"instruct_agent","arguments":{"simulation_id":"abc123def456","agent_name":"Alice","instruction":"Focus on being more creative"}}}
+```
+
+#### Abort Simulation
+
+```json
+{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"abort_simulation","arguments":{"simulation_id":"abc123def456"}}}
+```
+
+#### Stop Simulation
+
+```json
+{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"stop_simulation","arguments":{"simulation_id":"abc123def456"}}}
+```
+
+#### Get Simulation Logs
+
+```json
+{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"get_simulation_logs","arguments":{"simulation_id":"abc123def456","tail":50}}}
+```
+
+### 3. Interactive Testing Script
+
+Create a test script for interactive testing:
+
+```bash
+#!/bin/bash
+# test-mcp.sh
+
+# Build and run the server in the background
+yarn build
+node dist/index.js &
+SERVER_PID=$!
+
+# Wait for server to start
+sleep 2
+
+# Send test messages
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}' | nc localhost 3000
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | nc localhost 3000
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_simulations","arguments":{}}}' | nc localhost 3000
+
+# Cleanup
+kill $SERVER_PID
+```
+
+### 4. Using the MCP Inspector
+
+The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) provides a visual interface for testing MCP servers:
+
+```bash
+# Install MCP Inspector globally
+npm install -g @modelcontextprotocol/inspector
+
+# Run the inspector with your MCP server
+mcp-inspector node dist/index.js
+```
+
+Then open your browser to test the server interactively.
+
+### 5. Testing with MCP Inspector (Recommended)
+
+The MCP Inspector provides the easiest way to test your MCP server during development.
+
+**Using TypeScript directly (no build required):**
+
+```bash
+npx @modelcontextprotocol/inspector tsx src/index.ts
+```
+
+This will:
+
+- Start the MCP Inspector web interface
+- Run your TypeScript source directly via `tsx`
+- Open a browser at `http://localhost:5173`
+- Provide a visual interface to test all tools interactively
+
+**Using built JavaScript:**
+
+```bash
+npx @modelcontextprotocol/inspector node dist/index.js
+```
+
+**Advantages:**
+
+- ✅ No need to build (`tsx` runs TypeScript directly)
+- ✅ Visual interface for testing tools
+- ✅ See requests/responses in real-time
+- ✅ Test tool parameters with form validation
+- ✅ View full JSON-RPC messages
+- ✅ No manual JSON-RPC formatting required
+
+**Quick test without prompts:**
+
+```bash
+npx -y @modelcontextprotocol/inspector tsx src/index.ts
+```
+
+### Notes
+
+- The server communicates via **stdio** (stdin/stdout), not HTTP
+- Each JSON-RPC message must be on a **single line**
+- The `id` field is used to match requests with responses
+- Docker must be running for simulation-related tools to work
+- Set `OPENAI_API_KEY` environment variable before starting
+- Set `LOG_LEVEL=debug` for verbose logging during testing
+
 ## Available Tools
 
 ### Simulation Management

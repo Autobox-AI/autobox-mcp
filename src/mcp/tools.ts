@@ -23,6 +23,11 @@ export const tools: Tool[] = [
           type: 'object',
           description: 'Optional: Custom simulation config object instead of using a file',
         },
+        daemon: {
+          type: 'boolean',
+          description: 'Optional: Run in daemon mode (keeps server alive after simulation completes, default: false)',
+          default: false,
+        },
       },
     },
   },
@@ -221,6 +226,90 @@ export const tools: Tool[] = [
         },
       },
       required: ['simulation_name'],
+    },
+  },
+  {
+    name: 'ping_simulation',
+    description: 'Check if a simulation API is responsive (basic connectivity test)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        simulation_id: {
+          type: 'string',
+          description: 'ID of the simulation',
+        },
+      },
+      required: ['simulation_id'],
+    },
+  },
+  {
+    name: 'get_simulation_health',
+    description: 'Get detailed health status of a simulation from its API',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        simulation_id: {
+          type: 'string',
+          description: 'ID of the simulation',
+        },
+      },
+      required: ['simulation_id'],
+    },
+  },
+  {
+    name: 'get_simulation_execution_status',
+    description: 'Get the current execution status of a simulation (progress, phase, agents state)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        simulation_id: {
+          type: 'string',
+          description: 'ID of the simulation',
+        },
+      },
+      required: ['simulation_id'],
+    },
+  },
+  {
+    name: 'abort_simulation',
+    description: 'Gracefully abort a running simulation (different from Docker stop - allows cleanup)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        simulation_id: {
+          type: 'string',
+          description: 'ID of the simulation to abort',
+        },
+      },
+      required: ['simulation_id'],
+    },
+  },
+  {
+    name: 'get_simulation_info',
+    description: 'Get simulation information and metadata from its API',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        simulation_id: {
+          type: 'string',
+          description: 'ID of the simulation',
+        },
+      },
+      required: ['simulation_id'],
+    },
+  },
+  {
+    name: 'get_simulation_api_spec',
+    description: 'Get the OpenAPI/Swagger specification of a simulation API',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        simulation_id: {
+          type: 'string',
+          description: 'ID of the simulation',
+        },
+      },
+      required: ['simulation_id'],
     },
   },
 ];
