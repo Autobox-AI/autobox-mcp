@@ -1,7 +1,9 @@
-# Autobox MCP Server (TypeScript)
+# Autobox MCP Server
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
+[![codecov](https://img.shields.io/badge/codecov-report-blue.svg)](https://codecov.io/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 A TypeScript implementation of the MCP (Model Context Protocol) server for managing Autobox AI simulations. This is a complete rewrite of the Python version with improved type safety, better performance, and unified stack consistency.
@@ -139,16 +141,19 @@ yarn format
 ### Troubleshooting
 
 **Simulation fails with "ENOENT: no such file or directory" when loading configs:**
+
 - Ensure `HOST_HOME` is set in the Docker command
 - Verify `${HOME}/.autobox/config/simulations/` contains your simulation configs
 - Check that the MCP container has access to `/var/run/docker.sock`
 
 **Simulation fails with "401 You didn't provide an API key":**
+
 - Ensure `OPENAI_API_KEY` is set in your environment before starting the MCP
 - Verify the environment variable is being passed to the MCP container with `-e OPENAI_API_KEY`
 - Check that your OpenAI API key is valid and has credits
 
 **Cannot connect to Docker:**
+
 - Ensure Docker is running
 - Verify `/var/run/docker.sock` is mounted in the MCP container
 - Check Docker permissions (user must be in `docker` group on Linux)
