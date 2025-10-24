@@ -1,9 +1,9 @@
 # Autobox MCP Server
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 [![codecov](https://img.shields.io/badge/codecov-report-blue.svg)](https://codecov.io/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 A TypeScript implementation of the MCP (Model Context Protocol) server for managing Autobox AI simulations. This is a complete rewrite of the Python version with improved type safety, better performance, and unified stack consistency.
