@@ -1739,6 +1739,7 @@ __metadata:
     dockerode: "npm:^4.0.2"
     eslint: "npm:^9.17.0"
     jest: "npm:^29.7.0"
+    jest-util: "npm:^29.7.0"
     openai: "npm:^4.77.3"
     prettier: "npm:^3.4.2"
     ts-jest: "npm:^29.2.5"
