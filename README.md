@@ -1,7 +1,7 @@
 # Autobox MCP Server
 
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
-[![codecov](https://img.shields.io/badge/codecov-report-blue.svg)](https://codecov.io/)
+[![Tests](https://github.com/Autobox-AI/autobox-mcp/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/Autobox-AI/autobox-mcp/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/Autobox-AI/autobox-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/Autobox-AI/autobox-mcp)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)

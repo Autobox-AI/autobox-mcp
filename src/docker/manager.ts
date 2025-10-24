@@ -82,7 +82,7 @@ export class DockerManager {
             }
           }
         }
-      } catch (error) {
+      } catch (_error) {
         logger.debug('Not running in Docker or could not detect, using default path');
       }
     }
@@ -308,9 +308,9 @@ export class DockerManager {
       let networkRx = 0;
       let networkTx = 0;
       if (stats.networks) {
-        Object.values(stats.networks).forEach((network: any) => {
-          networkRx += network.rx_bytes || 0;
-          networkTx += network.tx_bytes || 0;
+        Object.values(stats.networks).forEach((network) => {
+          networkRx += (network as { rx_bytes?: number }).rx_bytes || 0;
+          networkTx += (network as { tx_bytes?: number }).tx_bytes || 0;
         });
       }
 
@@ -787,7 +787,7 @@ export class DockerManager {
       }
 
       return null;
-    } catch (error) {
+    } catch (_error) {
       // Not running in Docker or detection failed
       return null;
     }

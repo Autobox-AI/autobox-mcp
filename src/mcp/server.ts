@@ -416,7 +416,7 @@ export class AutoboxMCPServer {
     const result = this.configManager.deleteSimulation(simulationName);
 
     const runningSim = Array.from(this.simulations.entries()).find(
-      ([_, status]) => status.name === simulationName && status.status === 'running'
+      ([_id, status]) => status.name === simulationName && status.status === 'running'
     );
 
     const response: Record<string, unknown> = {
