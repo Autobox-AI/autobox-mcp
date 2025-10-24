@@ -14,9 +14,13 @@ COPY .yarn ./.yarn
 # Install dependencies
 RUN yarn install --immutable
 
+# Copy PnP files (Yarn 4 Plug'n'Play)
+COPY .pnp.* ./
+
 # Copy built application
 COPY dist ./dist
 
 ENV NODE_ENV=production
 
-ENTRYPOINT ["node", "dist/index.js"]
+# Use Yarn to run with PnP support
+ENTRYPOINT ["yarn", "node", "dist/index.js"]

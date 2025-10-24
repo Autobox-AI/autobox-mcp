@@ -1,5 +1,5 @@
 import Docker from 'dockerode';
-import { homedir, platform } from 'os';
+import { homedir } from 'os';
 import { join } from 'path';
 import type { ContainerStats, SimulationMetrics, SimulationStatus } from '../types/index.js';
 import { logger } from '../utils/logger.js';
@@ -47,18 +47,45 @@ export class DockerManager {
     const { configPath, daemon = false } = options;
     const configName = configPath.split('/').pop()?.replace('.json', '') || 'unknown';
 
-        const apiPort = 9000;
+    const apiPort = 9000;
     const hostPort = await this.findAvailablePort();
 
     logger.info(`Starting simulation ${configName} on host port ${hostPort}`);
 
     const homeDir = homedir();
     const autoboxPath = join(homeDir, '.autobox');
-    const runningInDocker = process.env.HOST_HOME !== undefined;
 
-    const hostAutoboxPath = runningInDocker
-      ? this.resolveHostPath(process.env.HOST_HOME || homeDir)
-      : autoboxPath;
+    // Detect if running in Docker and get the actual host path
+    let hostAutoboxPath = autoboxPath;
+
+    if (process.env.HOST_HOME) {
+      // If HOST_HOME is explicitly set, use it
+      hostAutoboxPath = join(process.env.HOST_HOME, '.autobox');
+      logger.info(`Using HOST_HOME environment variable: ${hostAutoboxPath}`);
+    } else {
+      // Try to detect if we're running in Docker by checking our own mounts
+      try {
+        const selfContainerId = await this.getSelfContainerId();
+        if (selfContainerId) {
+          const selfContainer = this.client.getContainer(selfContainerId);
+          const selfInfo = await selfContainer.inspect();
+
+          // Look for .autobox mount in our own container
+          if (selfInfo.Mounts) {
+            for (const mount of selfInfo.Mounts) {
+              if (mount.Destination === `${homeDir}/.autobox` || mount.Destination.endsWith('/.autobox')) {
+                // Found the mount - use the source path from the host
+                hostAutoboxPath = mount.Source as string;
+                logger.info(`Detected MCP running in Docker, using host path: ${hostAutoboxPath}`);
+                break;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        logger.debug('Not running in Docker or could not detect, using default path');
+      }
+    }
 
     const volumes = {
       [`${hostAutoboxPath}/config`]: {
@@ -732,13 +759,38 @@ export class DockerManager {
     });
   }
 
-  private resolveHostPath(hostHome: string): string {
-    const username = process.env.HOST_USER || 'root';
+  private async getSelfContainerId(): Promise<string | null> {
+    try {
+      const os = await import('os');
+      // In Docker, hostname is set to the container ID (short form)
+      const hostname = os.hostname();
 
-    if (platform() === 'darwin' || hostHome.includes('/Users')) {
-      return `/Users/${username}/.autobox`;
+      // Validate it looks like a container ID (12 hex characters)
+      if (hostname && /^[a-f0-9]{12}$/i.test(hostname)) {
+        return hostname;
+      }
+
+      // Fallback: try reading from cgroup
+      const fs = await import('fs');
+      const cgroup = fs.readFileSync('/proc/self/cgroup', 'utf8');
+
+      // Look for Docker container ID in cgroup (format varies by Docker version)
+      const match = cgroup.match(/docker[/-]([a-f0-9]{64})/i);
+      if (match) {
+        return match[1];
+      }
+
+      // Try alternative format (e.g., in newer Docker versions with short IDs)
+      const match2 = cgroup.match(/\/([a-f0-9]{12,64})/);
+      if (match2) {
+        return match2[1];
+      }
+
+      return null;
+    } catch (error) {
+      // Not running in Docker or detection failed
+      return null;
     }
-
-    return `/home/${username}/.autobox`;
   }
+
 }

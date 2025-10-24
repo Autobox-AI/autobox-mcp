@@ -130,6 +130,29 @@ yarn format
    # Should show: autobox ... ✓ Connected
    ```
 
+### Important Notes
+
+- **OPENAI_API_KEY**: This environment variable is **required** and must be passed to the MCP container. The MCP forwards it to simulation containers so agents can communicate with OpenAI.
+- **HOST_HOME**: Required for proper volume mounting when the MCP runs in Docker. Without this, config files won't be accessible to simulation containers.
+- **HOST_USER**: Optional but recommended for proper file permissions.
+
+### Troubleshooting
+
+**Simulation fails with "ENOENT: no such file or directory" when loading configs:**
+- Ensure `HOST_HOME` is set in the Docker command
+- Verify `${HOME}/.autobox/config/simulations/` contains your simulation configs
+- Check that the MCP container has access to `/var/run/docker.sock`
+
+**Simulation fails with "401 You didn't provide an API key":**
+- Ensure `OPENAI_API_KEY` is set in your environment before starting the MCP
+- Verify the environment variable is being passed to the MCP container with `-e OPENAI_API_KEY`
+- Check that your OpenAI API key is valid and has credits
+
+**Cannot connect to Docker:**
+- Ensure Docker is running
+- Verify `/var/run/docker.sock` is mounted in the MCP container
+- Check Docker permissions (user must be in `docker` group on Linux)
+
 ## Local Testing with JSON-RPC
 
 You can test the MCP server locally by running it directly and sending JSON-RPC messages via stdin/stdout.
